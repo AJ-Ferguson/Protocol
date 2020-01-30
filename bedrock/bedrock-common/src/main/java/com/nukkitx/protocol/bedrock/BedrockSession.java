@@ -29,6 +29,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
 public abstract class BedrockSession implements MinecraftSession<BedrockPacket> {
@@ -48,6 +49,8 @@ public abstract class BedrockSession implements MinecraftSession<BedrockPacket> 
     private SecretKey agreedKey;
     private volatile boolean closed = false;
     private volatile boolean logging = true;
+
+    private final ReentrantLock testLock = new ReentrantLock();
 
     BedrockSession(SessionConnection<ByteBuf> connection) {
         this.connection = connection;
@@ -115,6 +118,10 @@ public abstract class BedrockSession implements MinecraftSession<BedrockPacket> 
     public void sendWrapped(ByteBuf compressed, boolean encrypt) {
         Objects.requireNonNull(compressed, "compressed");
         ByteBuf withTrailer = null;
+        if (!testLock.tryLock()) {
+            //System.out.println("LOCK CONTENTION");
+            testLock.lock();
+        }
         try {
             int startIndex = compressed.readerIndex();
             ByteBuf finalPayload = PooledByteBufAllocator.DEFAULT.directBuffer(compressed.readableBytes() + 9);
@@ -138,6 +145,8 @@ public abstract class BedrockSession implements MinecraftSession<BedrockPacket> 
             if (withTrailer != null) {
                 withTrailer.release();
             }
+
+            testLock.unlock();
         }
     }
 
