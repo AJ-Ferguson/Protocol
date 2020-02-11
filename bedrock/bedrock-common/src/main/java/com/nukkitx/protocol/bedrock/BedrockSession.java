@@ -118,10 +118,6 @@ public abstract class BedrockSession implements MinecraftSession<BedrockPacket> 
     public void sendWrapped(ByteBuf compressed, boolean encrypt) {
         Objects.requireNonNull(compressed, "compressed");
         ByteBuf withTrailer = null;
-        if (!testLock.tryLock()) {
-            //System.out.println("LOCK CONTENTION");
-            testLock.lock();
-        }
         try {
             int startIndex = compressed.readerIndex();
             ByteBuf finalPayload = PooledByteBufAllocator.DEFAULT.directBuffer(compressed.readableBytes() + 9);
@@ -134,7 +130,9 @@ public abstract class BedrockSession implements MinecraftSession<BedrockPacket> 
                 withTrailer.writeBytes(compressed);
                 withTrailer.writeBytes(trailer);
 
-                this.encryptionCipher.cipher(withTrailer, finalPayload);
+                synchronized (this) {
+                    this.encryptionCipher.cipher(withTrailer, finalPayload);
+                }
             } else {
                 finalPayload.writeBytes(compressed);
             }
@@ -145,8 +143,6 @@ public abstract class BedrockSession implements MinecraftSession<BedrockPacket> 
             if (withTrailer != null) {
                 withTrailer.release();
             }
-
-            testLock.unlock();
         }
     }
 
@@ -155,7 +151,13 @@ public abstract class BedrockSession implements MinecraftSession<BedrockPacket> 
             return;
         }
 
-        this.sendQueued();
+        if (testLock.tryLock()) {
+            try {
+                this.sendQueued();
+            } finally {
+                testLock.unlock();
+            }
+        }
     }
 
     private void sendQueued() {
